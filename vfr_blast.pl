@@ -6,7 +6,9 @@
 #
 # Authors: Ian Korf, Ken Yu, and Keith Bradnam: Genome Center, UC Davis
 # This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.
-# This software is provided AS IS, without warranty of any kind.
+# 
+# Last updated by: $Author: keith $
+# Last updated on: $Date: 2011/04/21 18:37:44 $
 
 use strict; use warnings;
 use FAlite; use DataBrowser;
@@ -134,7 +136,6 @@ my %hit;
 my %assembly_stats;
 my %scaffold_stats;
 my %location_stats;
-my %strand_stats;
 
 my $blast;
 open($blast, "<$blast_file") or die "can't open $blast_file";
@@ -153,10 +154,8 @@ while (<$blast>) {
 
 	# this will be potentially overwritten if a tag matches
 	# multiple scaffolds, but we will only be interested in the unique ones
-	$scaffold_stats{$assembly}{$qid} = $scaffold;
-		
-	# track strand of match
-	$strand_stats{$assembly}{$qid} = $qf;
+#	$scaffold_stats{$assembly}{$qid} = $scaffold;
+	push(@{$scaffold_stats{$assembly}{$qid}}, $scaffold);	
 	
 	# track the start coord of each tag
 	$location_stats{$assembly}{$qid} = $ss;
@@ -167,7 +166,6 @@ while (<$blast>) {
 		parent => $sid,
 		start  => $ss,
 		end    => $se,
-		strand => $qf,
 	}
 }
 
@@ -181,11 +179,15 @@ if($CSV){
 
 if($CSV){
 
-	print $out "Assembly,Number of $total_tag_count VFRTs that match,%Matching VFRTs,";
-	print $out "Number of unique VFRTs,%Unique VFRTs,";
-	print $out "Number of unique VFRTs pairs matching same scaffold,%Unique pairs matching same scaffold,";
-	print $out "Number of unique VFRTs pairs matching same scaffold on same strand,%Unique pairs matching same scaffold on same strand,";
-	print $out "Number of unique VFRTs pairs matching same scaffold on same strand at expected distance,%Unique pairs matching same scaffold on same strand at expected distance,";
+	print $out "Assembly,";
+	print $out "Number of $total_tag_count VFRTs that match,";
+	print $out "Number of unique VFRTs,";
+	print $out "Number of tag pairs matching same scaffold,";
+	print $out "Number of unique tag pairs matching same scaffold,";
+	print $out "Number of unique VFRTs pairs matching same scaffold at expected distance +/- 2 bp,";
+	print $out "Unique VFRTs pairs matching same scaffold at expected distance as percentage of those that uniquently matched scaffold,";
+	print $out "VFRT summary score,";
+	
 	
 	print $out "\n";
 }
@@ -202,9 +204,8 @@ foreach my $assembly (sort keys %assembly_stats){
 	open(my $distance_file, ">", "$distance_file_name") or die "Can't write to $distance_file_name";
 		
 	my $matched_tags = scalar keys %{$assembly_stats{$assembly}};
-	my $percent = sprintf("%.1f", $matched_tags / $total_tag_count * 100);
-	print "$matched_tags ($percent%) - VFRTs that match assembly\n";
-	print $out "$matched_tags,$percent%," if ($CSV);
+	print "$matched_tags - VFRTs that match assembly\n";
+	print $out "$matched_tags," if ($CSV);
 
 	
 	# will keep track of maximum number of tags per assembly (duplications/repeats in assembly?)
@@ -216,15 +217,13 @@ foreach my $assembly (sort keys %assembly_stats){
 	foreach my $tag (sort keys %{$assembly_stats{$assembly}}){
 		$unique++ if ($assembly_stats{$assembly}{$tag} == 1);
 	}
-	$percent = sprintf("%.1f", $unique / $total_tag_count * 100);
-	print "$unique ($percent%) - VFRTs that match uniquely to assembly\n";
-	print $out "$unique,$percent%," if ($CSV);
+	print "$unique - VFRTs that match uniquely to assembly\n";
+	print $out "$unique," if ($CSV);
 	
 	
 	# now see how many pairs of VFRTs — that have unique matches — match same scaffold
-	# and also how many are on same strand
-	my $match_same_scaffold = 0;
-	my $same_strand_count = 0;
+	my $pair_match_same_scaffold = 0;
+	my $pair_match_same_scaffold_uniquely = 0;
 	my $correct_distance = 0;
 	my $distance_errors;
 	
@@ -249,26 +248,27 @@ foreach my $assembly (sort keys %assembly_stats){
 			$max_tag_id = $rtag;
 		}
 
+		my $match_same_scaffold_check = 0;
+		
+		# loop over all ltag hits to see if one of them matches the same scaffold as rtag
+		OUTER: foreach my $ltag_scaffold (@{$scaffold_stats{$assembly}{$ltag}}){
+			foreach my $rtag_scaffold (@{$scaffold_stats{$assembly}{$rtag}}){
+				if ($ltag_scaffold eq $rtag_scaffold){				
+					$pair_match_same_scaffold++;
+					$match_same_scaffold_check = 1;
+					last OUTER;
+				} 
+			}
+		}
+		
+		# only continue if both tags match the same scaffold
+		next unless $match_same_scaffold_check;
+	
 		# only continue now if tag counts are both unique
 		next unless ($ltag_count == 1 && $rtag_count == 1);
+		$pair_match_same_scaffold_uniquely++;
+
 		
-		# do they both match the same scaffold		
-		if ($scaffold_stats{$assembly}{$ltag} eq $scaffold_stats{$assembly}{$rtag}){
-			$match_same_scaffold++;
-		}
-
-		# only continue now if tags both match same scaffold
-		next unless ($scaffold_stats{$assembly}{$ltag} eq $scaffold_stats{$assembly}{$rtag});
-		
-	
-		# check for same orientation
-		if ($strand_stats{$assembly}{$ltag} eq $strand_stats{$assembly}{$rtag}){
-			$same_strand_count++;
-		}
-
-		# only continue now if tags are on same strand
-		next unless ($strand_stats{$assembly}{$ltag} eq $strand_stats{$assembly}{$rtag});
-
 		# check for distance
 		my ($lstart, $rstart) = ($location_stats{$assembly}{$ltag}, $location_stats{$assembly}{$rtag});
 		my $distance = $rstart - $lstart;
@@ -276,16 +276,8 @@ foreach my $assembly (sort keys %assembly_stats){
 
 		print $distance_file "$distance\n";
 
-#		my $tolerance_low  = ($DISTANCE + $LENGTH) * 0.95;
-#		my $tolerance_high = ($DISTANCE + $LENGTH) * 1.05;
-#		# The distance between the pair of fragments in the assembly must be 95-105% of the distance between fragments in the known genome
-#		if ($distance >= $tolerance_low && $distance <= $tolerance_high){
-#			$correct_distance++;
-#		} else{
-#			$distance_errors .= "\tINCORRECT DISTANCE: $ltag & $rtag: $distance bp between tags\n";
-#		}
-
-		if ($distance == $DISTANCE + $LENGTH){
+		# will allow 1–2 bp difference either side
+		if ($distance >= ($DISTANCE + $LENGTH - 2) and $distance <= ($DISTANCE + $LENGTH + 2)){ 
 			$correct_distance++;
 		} else{
 	 		$distance_errors .= "\tINCORRECT DISTANCE: $ltag & $rtag: $distance bp between tags\n";
@@ -293,18 +285,36 @@ foreach my $assembly (sort keys %assembly_stats){
 
 
 	} 
-	$percent = sprintf("%.1f", ($match_same_scaffold / $total_pair_count) * 100);
-	print "$match_same_scaffold ($percent%) - unique pairs that match same scaffold\n";
-	print $out "$match_same_scaffold,$percent%," if ($CSV);
+	print "$pair_match_same_scaffold\n";
+	print $out "$pair_match_same_scaffold," if ($CSV);
 
-	$percent = sprintf("%.1f", ($same_strand_count / $total_pair_count) * 100);
-	print "$same_strand_count ($percent%) - unique pairs, match same scaffold, in same orientation\n";
-	print $out "$same_strand_count,$percent%," if ($CSV);
+	print "$pair_match_same_scaffold_uniquely\n";
+	print $out "$pair_match_same_scaffold_uniquely," if ($CSV);
 
-	$percent = sprintf("%.1f", ($correct_distance / $total_pair_count) * 100);
+
 	my $expected_distance = $DISTANCE + $LENGTH;
-	print "$correct_distance ($percent%) - unique pairs, match same scaffold, in same orientation, at expected distance (~$expected_distance bp)\n";
-	print $out "$correct_distance,$percent%," if ($CSV);
+	print "$correct_distance - unique tag pairs matching same scaffold at expected distance (~$expected_distance bp) +/- 2 bp\n";
+	print $out "$correct_distance," if ($CSV);
+
+
+	# calculate what percentage of the pairs that matched uniquely to the same scaffold
+	# matched at the correct distance
+	my $percent;
+	
+	if ($pair_match_same_scaffold_uniquely == 0){
+		$percent = 0;
+	}
+	else{
+		$percent = sprintf("%.5f", $correct_distance / $pair_match_same_scaffold_uniquely);
+	}
+	print "%tag pairs matching same scaffold at expected distance as % of pairs that uniquely matched same scaffold\n";
+	print $out "$percent," if ($CSV);
+
+	# calculate summary score
+	my $vfrt_summary_score = $pair_match_same_scaffold * $percent;
+	print "VFRT summary score\n";
+	print $out "$vfrt_summary_score," if ($CSV);
+
 
 	print "$distance_errors" if ($distance_errors);
 
@@ -312,38 +322,12 @@ foreach my $assembly (sort keys %assembly_stats){
 	print "\n";	
 	print $out "\n" if ($CSV);
 	close($distance_file);
+
+
 }
+
 
 close($out) if ($CSV);
 exit;
 
 __END__
-
-
-my $tolerance_low  = $r * 0.95;
-my $tolerance_high = $r * 1.05;
-my $count = 0;
-
-OUTER: foreach my $num (keys %hit) {
-	my $left  = $hit{$num}{L};
-	my $right = $hit{$num}{R};
-	next unless defined $left and defined $right;
-	foreach my $hsp1 (@$left) {
-		foreach my $hsp2 (@$right) {
-			next if $hsp1->{parent} ne $hsp2->{parent}; # both fragments must match same contig/scaffold
-			next if $hsp1->{strand} ne $hsp2->{strand}; # both fragments must be in same orientation
-
-			# calculate distance between fragments, but also need to check if we have a reverse strand match
-			my $distance = abs($hsp1->{end}+1 - $hsp2->{start});
-			$distance    = abs($hsp2->{end}+1 - $hsp1->{start}) if ($hsp1->{start} > $hsp2->{start});
-			
-			# The distance between the pair of fragments in the assembly must be 95-105% of the distance between fragments in the known genome
-			if ($distance >= $tolerance_low && $distance <= $tolerance_high){
-				$count++;
-				next OUTER;			
-			}
-		}
-	}
-}
-printf "%d\t%.4f\n", $r, $count / $generated{$r};
-
