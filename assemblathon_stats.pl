@@ -56,13 +56,13 @@ my ($file) = @ARGV;
 #
 ###############################################
 
-my $scaffolded_contigs = 0;				# how many contigs that are part of scaffolds (sequences must have $n_limit consecutive Ns)
+my $scaffolded_contigs = 0;			# how many contigs that are part of scaffolds (sequences must have $n_limit consecutive Ns)
 my $scaffolded_contig_length = 0;		# total length of all scaffolded contigs
 my $unscaffolded_contigs = 0;			# how many 'orphan' contigs, not part of a scaffold
 my $unscaffolded_contig_length = 0;		# total length of all contigs not part of scaffold
-my $w = 60;								# formatting width for output
-my %data;								# data structure to hold all sequence info key is either 'scaffold', 'contig' or intermediate', values are seqs & length arrays
-my (@results, @headers);				# arrays to store results (for use with -csv option)
+my $w = 60;					# formatting width for output
+my %data;					# data structure to hold all sequence info key is either 'scaffold', 'contig' or intermediate', values are seqs & length arrays
+my (@results, @headers);			# arrays to store results (for use with -csv option)
 	
 	
 	
@@ -140,14 +140,14 @@ sub process_FASTA{
 			$scaffolded_contig_length += $length;
 			
 			# loop through all contigs that comprise the scaffold
-			foreach my $contig (split(/N{25,}/, $seq)){
+			foreach my $contig (split(/N{$n_limit,}/, $seq)){
 				$scaffolded_contigs++;
 				my $length = length($contig);				
 				push(@{$data{contig}{seqs}},$contig);	
 				push(@{$data{contig}{lengths}},$length);	
 			}
 		} else {
-			# must be here if the scaffold is actually just a contig (or is a scaffold with < 25 Ns)
+			# must be here if the scaffold is actually just a contig (or is a scaffold with < $n_limit Ns)
 			$unscaffolded_contigs++;
 			$unscaffolded_contig_length += $length;
 			push(@{$data{contig}{seqs}},$seq);	
@@ -201,10 +201,10 @@ sub sequence_statistics{
 		store_results($desc, $average_contigs_per_scaffold) if ($csv);
 		
 		# now calculate average length of break between contigs
-		# just find all runs of Ns in scaffolds (>=25) and calculate average length
+		# just find all runs of Ns in scaffolds (>= $n_limit) and calculate average length
 		my @contig_breaks;
 		foreach my $scaffold (@{$data{scaffold}{seqs}}){
-			while($scaffold =~ m/(N{25,})/g){
+			while($scaffold =~ m/(N{$n_limit,})/g){
 				push(@contig_breaks, length($1));
 			}
 		}	
@@ -216,7 +216,7 @@ sub sequence_statistics{
 		} else{			
 			$average_break_length = sum(@contig_breaks) / @contig_breaks;
 		}
-		$desc = "Average length of break (>25 Ns) between contigs in scaffold";
+		$desc = "Average length of break (>$n_limit Ns) between contigs in scaffold";
 		printf "%${w}s %10d\n", $desc, $average_break_length;
 		store_results($desc, $average_break_length) if ($csv);
 		return();
