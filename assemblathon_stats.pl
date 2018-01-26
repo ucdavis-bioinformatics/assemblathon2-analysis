@@ -141,7 +141,7 @@ sub process_FASTA{
 			
 			# loop through all contigs that comprise the scaffold
 			foreach my $contig (split(/N{$n_limit,}/, $seq)){
-				$scaffolded_contigs++;
+			        $scaffolded_contigs++;
 				my $length = length($contig);				
 				push(@{$data{contig}{seqs}},$contig);	
 				push(@{$data{contig}{lengths}},$length);	
@@ -213,11 +213,19 @@ sub sequence_statistics{
 		
 		if(@contig_breaks == 0){
 			$average_break_length = 0;
-		} else{			
-			$average_break_length = sum(@contig_breaks) / @contig_breaks;
+		} else{
+		    $average_break_length = sum(@contig_breaks) / scalar(@contig_breaks);
 		}
-		$desc = "Average length of break (>$n_limit Ns) between contigs in scaffold";
-		printf "%${w}s %10d\n", $desc, $average_break_length;
+		if($n_limit == 1) {
+                  $desc = "Mean length of breaks (>=${n_limit}N) between contigs in scaffold";
+		} else {
+                  $desc = "Mean length of breaks (>=${n_limit}Ns) between contigs in scaffold";
+		}
+		if(length($n_limit)>=5) {
+		    printf "%${w}s %9d\n", $desc, $average_break_length;
+		} else {
+		    printf "%${w}s %10d\n", $desc, $average_break_length;
+		}
 		store_results($desc, $average_break_length) if ($csv);
 		return();
 	}
