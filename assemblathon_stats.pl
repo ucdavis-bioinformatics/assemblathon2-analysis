@@ -141,8 +141,8 @@ sub process_FASTA{
 			
 			# loop through all contigs that comprise the scaffold
 			foreach my $contig (split(/N{$n_limit,}/, $seq)){
+			    next unless my $length = length($contig);
 			        $scaffolded_contigs++;
-				my $length = length($contig);				
 				push(@{$data{contig}{seqs}},$contig);	
 				push(@{$data{contig}{lengths}},$length);	
 			}
